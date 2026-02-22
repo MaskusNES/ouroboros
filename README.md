@@ -223,6 +223,9 @@ Full text: [BIBLE.md](BIBLE.md)
 
 ## Changelog
 
+### v6.2.2
+- v6.2.2: Fix document/file handling — Telegram documents (PDF, Excel, TXT, DOCX, CSV, JSON, Python files) are now properly downloaded and parsed; non-parseable files are saved to Drive; images-as-documents continue to work as before
+
 ### v6.2.1
 - v6.2.1: Voice message support (Whisper transcription)
 
