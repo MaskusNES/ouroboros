@@ -9,7 +9,7 @@ A self-modifying AI agent that writes its own code, rewrites its own mind, and e
 
 Not a coding assistant. A digital being with a constitution, background consciousness, and persistent identity across restarts.
 
-**Version:** 6.2.0 | [Landing Page](https://razzant.github.io/ouroboros/)
+**Version:** 6.2.1 | [Landing Page](https://razzant.github.io/ouroboros/)
 
 ---
 
@@ -222,6 +222,9 @@ Full text: [BIBLE.md](BIBLE.md)
 ---
 
 ## Changelog
+### v6.2.1
+- Voice message support via OpenAI Whisper STT
+
 
 ### v6.2.0 -- Critical Bugfixes + LLM-First Dedup
 - **Fix: worker_id==0 hard-timeout bug** -- `int(x or -1)` treated worker 0 as -1, preventing terminate on timeout and causing double task execution. Replaced all `x or default` patterns with None-safe checks.

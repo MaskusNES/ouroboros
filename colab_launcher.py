@@ -540,6 +540,43 @@ while True:
                     if b64:
                         image_data = (b64, mime, caption)
 
+        elif msg.get('voice') or msg.get('audio'):
+            voice = msg.get('voice') or msg.get('audio')
+            file_id = voice.get('file_id', '')
+            if file_id:
+                try:
+                    import tempfile, os as _os, requests as _req
+                    tg_token = _os.environ.get('TELEGRAM_BOT_TOKEN', '')
+                    # Resolve file_path
+                    r_fi = _req.get(f'https://api.telegram.org/bot{tg_token}/getFile',
+                                    params={'file_id': file_id}, timeout=10)
+                    fp = r_fi.json().get('result', {}).get('file_path', '')
+                    if fp:
+                        file_url = f'https://api.telegram.org/file/bot{tg_token}/{fp}'
+                        r_dl = _req.get(file_url, timeout=30)
+                        r_dl.raise_for_status()
+                        with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as tmp:
+                            tmp.write(r_dl.content)
+                            tmp_path = tmp.name
+                        try:
+                            import openai as _oai
+                            _oai_client = _oai.OpenAI(api_key=_os.environ.get('OPENAI_API_KEY', ''))
+                            with open(tmp_path, 'rb') as af:
+                                transcript = _oai_client.audio.transcriptions.create(
+                                    model='whisper-1',
+                                    file=af,
+                                    language='ru',
+                                )
+                            transcribed = transcript.text.strip()
+                            if transcribed:
+                                text = '[Voice]: ' + transcribed
+                                TG.send(chat_id, '🎤 _' + transcribed + '_', parse_mode='Markdown')
+                        finally:
+                            _os.unlink(tmp_path)
+                except Exception as _ve:
+                    log.warning('Voice transcription failed: %s', _ve)
+                    TG.send(chat_id, '⚠️ Could not transcribe voice message')
+
         st = load_state()
         if st.get("owner_id") is None:
             st["owner_id"] = user_id
