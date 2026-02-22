@@ -530,6 +530,44 @@ while True:
                 b64, mime = TG.download_file_base64(file_id)
                 if b64:
                     image_data = (b64, mime, caption)
+        # --- Voice message handling ---
+        elif msg.get("voice"):
+            voice = msg["voice"]
+            file_id = voice.get("file_id", "")
+            if file_id and OPENAI_API_KEY:
+                try:
+                    b64 = TG.download_file_base64(file_id)
+                    if b64:
+                        import base64, tempfile
+                        audio_bytes = base64.b64decode(b64)
+                        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+                            tmp.write(audio_bytes)
+                            tmp_path = tmp.name
+                        from openai import OpenAI as _OpenAI
+                        _oai = _OpenAI(api_key=OPENAI_API_KEY)
+                        with open(tmp_path, "rb") as af:
+                            transcript = _oai.audio.transcriptions.create(
+                                model="whisper-1",
+                                file=af,
+                                language="ru",
+                            )
+                        import os as _os
+                        _os.unlink(tmp_path)
+                        voice_text = transcript.text.strip()
+                        if voice_text:
+                            text = voice_text
+                            # Echo transcription back to user
+                            send_with_budget(chat_id, f"_{voice_text}_")
+                        else:
+                            send_with_budget(chat_id, "⚠️ Не удалось распознать голосовое сообщение.")
+                            continue
+                except Exception as e:
+                    log.warning(f"Voice transcription failed: {e}")
+                    send_with_budget(chat_id, f"⚠️ Ошибка обработки голосового: {e}")
+                    continue
+            else:
+                send_with_budget(chat_id, "⚠️ Голосовые не поддерживаются: нет OPENAI_API_KEY.")
+                continue
         elif msg.get("document"):
             doc = msg["document"]
             mime_type = str(doc.get("mime_type") or "")
