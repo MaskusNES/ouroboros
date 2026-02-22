@@ -374,6 +374,8 @@ class BackgroundConsciousness:
         # Read-only tools for awareness
         "web_search", "repo_read", "repo_list", "drive_read", "drive_list",
         "chat_history",
+        # Browser automation (for tech radar, docs, pricing checks)
+        "browse_page", "browser_action",
         # GitHub Issues
         "list_github_issues", "get_github_issue",
     })
