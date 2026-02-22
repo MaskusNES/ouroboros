@@ -536,7 +536,7 @@ while True:
             file_id = voice.get("file_id", "")
             if file_id and OPENAI_API_KEY:
                 try:
-                    b64 = TG.download_file_base64(file_id)
+                    b64, _mime = TG.download_file_base64(file_id)
                     if b64:
                         import base64, tempfile
                         audio_bytes = base64.b64decode(b64)
