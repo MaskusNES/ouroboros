@@ -581,6 +581,17 @@ while True:
         user_id = int(from_user.get("id") or 0)
         text = str(msg.get("text") or "")
         caption = str(msg.get("caption") or "")
+        # Extract reply-to context if present
+        _reply_context = ""
+        _reply_msg = msg.get("reply_to_message")
+        if _reply_msg:
+            _reply_text = str(_reply_msg.get("text") or _reply_msg.get("caption") or "")
+            _reply_from = (_reply_msg.get("from") or {})
+            _reply_is_bot = _reply_from.get("is_bot", False)
+            _reply_sender = "Ouroboros" if _reply_is_bot else "you"
+            if _reply_text:
+                _snippet = _reply_text[:200] + ("…" if len(_reply_text) > 200 else "")
+                _reply_context = f"[Reply to {_reply_sender}: \"{_snippet}\"]"
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         # Extract image if present
@@ -662,6 +673,12 @@ while True:
                     else:
                         text = f"[File download failed: {fname}]"
 
+        # Prepend reply context to text if this is a reply
+        if _reply_context and text:
+            text = f"{_reply_context}\n{text}"
+        elif _reply_context:
+            text = _reply_context
+
         st = load_state()
         if st.get("owner_id") is None:
             st["owner_id"] = user_id
@@ -739,6 +756,14 @@ while True:
                     _uid2 = (_msg2.get("from") or {}).get("id")
                     _cid2 = (_msg2.get("chat") or {}).get("id")
                     _txt2 = _msg2.get("text") or _msg2.get("caption") or ""
+                    _reply2 = _msg2.get("reply_to_message") or {}
+                    _reply_txt2 = str(_reply2.get("text") or _reply2.get("caption") or "")
+                    if _reply_txt2:
+                        _reply_from2 = (_reply2.get("from") or {})
+                        _is_bot2 = _reply_from2.get("is_bot", False)
+                        _sender2 = "Ouroboros" if _is_bot2 else "you"
+                        _snip2 = _reply_txt2[:200] + ("…" if len(_reply_txt2) > 200 else "")
+                        _txt2 = f"[Reply to {_sender2}: \"{_snip2}\"]\n{_txt2}" if _txt2 else f"[Reply to {_sender2}: \"{_snip2}\"]"
                     if _uid2 and _batch_state.get("owner_id") and _uid2 == int(_batch_state["owner_id"]):
                         log_chat("in", _cid2, _uid2, _txt2)
                         _batch_state["last_owner_message_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
