@@ -156,14 +156,63 @@ class TelegramClient:
 
             # Guess mime type from extension
             ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
-            mime_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-                        "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp"}
+            mime_map = {
+                "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp",
+                "pdf": "application/pdf",
+                "txt": "text/plain", "md": "text/markdown", "csv": "text/csv",
+                "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "xls": "application/vnd.ms-excel",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "doc": "application/msword",
+                "json": "application/json",
+                "py": "text/x-python",
+                "zip": "application/zip",
+            }
             mime = mime_map.get(ext, "image/jpeg")  # default to jpeg
 
             return b64, mime
         except Exception:
             log.warning("Failed to download file_id=%s from Telegram", file_id, exc_info=True)
             return None, ""
+
+    def download_file_bytes(self, file_id: str, max_bytes: int = 20_000_000) -> Tuple[Optional[bytes], str, str]:
+        """Download a file from Telegram and return (bytes, mime_type, filename). Returns (None, "", "") on failure."""
+        try:
+            r = requests.get(f"{self.base}/getFile", params={"file_id": file_id}, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            if not data.get("ok"):
+                return None, "", ""
+            file_path = data["result"].get("file_path", "")
+            file_size = int(data["result"].get("file_size") or 0)
+            if file_size > max_bytes:
+                return None, "", ""
+
+            download_url = f"https://api.telegram.org/file/bot{self._token}/{file_path}"
+            r2 = requests.get(download_url, timeout=60)
+            r2.raise_for_status()
+
+            ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+            filename = file_path.rsplit("/", 1)[-1] if "/" in file_path else file_path
+            mime_map = {
+                "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp",
+                "pdf": "application/pdf",
+                "txt": "text/plain", "md": "text/markdown", "csv": "text/csv",
+                "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "xls": "application/vnd.ms-excel",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "doc": "application/msword",
+                "json": "application/json",
+                "py": "text/x-python",
+                "zip": "application/zip",
+            }
+            mime = mime_map.get(ext, "application/octet-stream")
+            return r2.content, mime, filename
+        except Exception:
+            log.warning("Failed to download file_id=%s bytes from Telegram", file_id, exc_info=True)
+            return None, "", ""
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 # ----------------------------
 def install_launcher_deps() -> None:
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-q", "openai>=1.0.0", "requests"],
+        [sys.executable, "-m", "pip", "install", "-q", "openai>=1.0.0", "requests", "python-docx"],
         check=True,
     )
 
@@ -459,6 +459,69 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     return ""
 
 
+def _extract_file_text(raw_bytes: bytes, mime_type: str, filename: str, max_chars: int = 50_000) -> str:
+    """Extract text content from file bytes. Returns empty string if unsupported."""
+    try:
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+        # Plain text formats
+        if mime_type.startswith("text/") or ext in ("txt", "md", "csv", "json", "py", "js", "ts", "html", "xml", "yaml", "yml"):
+            return raw_bytes.decode("utf-8", errors="replace")[:max_chars]
+
+        # PDF
+        if mime_type == "application/pdf" or ext == "pdf":
+            try:
+                import io
+                from pdfminer.high_level import extract_text as pdf_extract_text
+                text = pdf_extract_text(io.BytesIO(raw_bytes))
+                return (text or "")[:max_chars]
+            except Exception:
+                try:
+                    import PyPDF2, io
+                    reader = PyPDF2.PdfReader(io.BytesIO(raw_bytes))
+                    parts = []
+                    for page in reader.pages:
+                        parts.append(page.extract_text() or "")
+                    return "\n".join(parts)[:max_chars]
+                except Exception:
+                    return ""
+
+        # Excel
+        if ext in ("xlsx", "xls") or "spreadsheet" in mime_type or "excel" in mime_type:
+            try:
+                import pandas as pd, io
+                dfs = pd.read_excel(io.BytesIO(raw_bytes), sheet_name=None)
+                parts = []
+                for sheet_name, df in dfs.items():
+                    parts.append(f"=== Sheet: {sheet_name} ===\n{df.to_string(index=False)}")
+                return "\n\n".join(parts)[:max_chars]
+            except Exception:
+                return ""
+
+        # CSV (redundant but explicit)
+        if ext == "csv" or mime_type == "text/csv":
+            try:
+                import pandas as pd, io
+                df = pd.read_csv(io.BytesIO(raw_bytes))
+                return df.to_string(index=False)[:max_chars]
+            except Exception:
+                return raw_bytes.decode("utf-8", errors="replace")[:max_chars]
+
+        # Word documents
+        if ext in ("docx",) or "wordprocessingml" in mime_type:
+            try:
+                import io
+                from docx import Document
+                doc = Document(io.BytesIO(raw_bytes))
+                return "\n".join(p.text for p in doc.paragraphs)[:max_chars]
+            except Exception:
+                return ""
+
+        return ""  # Unsupported format
+    except Exception:
+        return ""
+
+
 offset = int(load_state().get("tg_offset") or 0)
 _last_diag_heartbeat_ts = 0.0
 _last_message_ts: float = time.time()  # Start in active mode after restart
@@ -570,13 +633,34 @@ while True:
                 continue
         elif msg.get("document"):
             doc = msg["document"]
-            mime_type = str(doc.get("mime_type") or "")
-            if mime_type.startswith("image/"):
-                file_id = doc.get("file_id")
-                if file_id:
-                    b64, mime = TG.download_file_base64(file_id)
+            file_id = doc.get("file_id")
+            mime_type = doc.get("mime_type", "")
+            file_name = doc.get("file_name", "file")
+            if file_id:
+                if mime_type.startswith("image/"):
+                    # Treat as image
+                    b64, detected_mime = TG.download_file_base64(file_id)
                     if b64:
-                        image_data = (b64, mime, caption)
+                        image_data = (b64, detected_mime, caption)
+                else:
+                    # Non-image document: download and extract text content
+                    raw_bytes, detected_mime, tg_filename = TG.download_file_bytes(file_id)
+                    fname = file_name or tg_filename or "file"
+                    if raw_bytes:
+                        file_text = _extract_file_text(raw_bytes, detected_mime, fname)
+                        if file_text:
+                            text = f"[File: {fname}]\n{file_text}" + (f"\n\nCaption: {caption}" if caption else "")
+                        else:
+                            # Save to Drive and notify
+                            import base64 as _b64mod
+                            drive_path = f"/content/drive/MyDrive/Ouroboros/uploads/{fname}"
+                            import pathlib as _pl
+                            _pl.Path(drive_path).parent.mkdir(parents=True, exist_ok=True)
+                            with open(drive_path, "wb") as _f:
+                                _f.write(raw_bytes)
+                            text = f"[File saved to Drive: {drive_path}] (format not auto-parseable: {detected_mime})" + (f"\nCaption: {caption}" if caption else "")
+                    else:
+                        text = f"[File download failed: {fname}]"
 
         st = load_state()
         if st.get("owner_id") is None:
