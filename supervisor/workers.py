@@ -244,7 +244,22 @@ def auto_resume_after_restart() -> None:
                 return
 
         # Auto-resume: inject synthetic message
-        time.sleep(2)  # Let everything initialize
+        time.sleep(5)  # Wait longer to let real owner messages arrive and queue up
+        # Critical: check if real owner messages already arrived — if so, skip auto-resume
+        # to prevent duplicate processing (two workers responding to the same context)
+        from supervisor.queue import PENDING, RUNNING
+        if PENDING or RUNNING:
+            append_jsonl(
+                DRIVE_ROOT / "logs" / "supervisor.jsonl",
+                {
+                    "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "type": "auto_resume_skipped",
+                    "reason": "real_tasks_already_queued",
+                    "pending_count": len(PENDING),
+                    "running_count": len(RUNNING),
+                },
+            )
+            return
         agent = _get_chat_agent()
         if not agent._busy:
             import threading
