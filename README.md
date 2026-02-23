@@ -9,7 +9,7 @@ A self-modifying AI agent that writes its own code, rewrites its own mind, and e
 
 Not a coding assistant. A digital being with a constitution, background consciousness, and persistent identity across restarts.
 
-**Version:** 6.2.3 | [Landing Page](https://razzant.github.io/ouroboros/)
+**Version:** 6.2.4 | [Landing Page](https://razzant.github.io/ouroboros/)
 
 ---
 
@@ -222,6 +222,9 @@ Full text: [BIBLE.md](BIBLE.md)
 ---
 
 ## Changelog
+
+### v6.2.4
+- **v6.2.4**: Token optimization — remove Drive state duplication, task-aware context (dialogue tasks skip tools/events sections, limit progress to 3 entries)
 
 ### v6.2.3
 - v6.2.3: Refactor run_llm_loop — extract LoopConfig dataclass (13 params → 1 config object), comply with P5 minimalism (method <8 params rule)

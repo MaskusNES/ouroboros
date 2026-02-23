@@ -113,9 +113,10 @@ def _build_memory_sections(memory: Memory) -> List[str]:
     return sections
 
 
-def _build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[str]:
-    """Build recent chat, recent progress, recent tools, recent events sections."""
+def _build_recent_sections(memory: Memory, env: Any, task_id: str = "", task_type: str = "") -> List[str]:
+    """Build recent chat, recent progress sections. Adapts to task type for token efficiency."""
     sections = []
+    is_dialogue = task_type in ("owner_message", "background")
 
     chat_summary = memory.summarize_chat(
         memory.read_jsonl_tail("chat.jsonl", 200))
@@ -125,23 +126,27 @@ def _build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[
     progress_entries = memory.read_jsonl_tail("progress.jsonl", 200)
     if task_id:
         progress_entries = [e for e in progress_entries if e.get("task_id") == task_id]
-    progress_summary = memory.summarize_progress(progress_entries, limit=15)
+    # For dialogue tasks, show only last 3 progress entries to save tokens
+    progress_limit = 3 if is_dialogue else 15
+    progress_summary = memory.summarize_progress(progress_entries, limit=progress_limit)
     if progress_summary:
         sections.append("## Recent progress\n\n" + progress_summary)
 
-    tools_entries = memory.read_jsonl_tail("tools.jsonl", 200)
-    if task_id:
-        tools_entries = [e for e in tools_entries if e.get("task_id") == task_id]
-    tools_summary = memory.summarize_tools(tools_entries)
-    if tools_summary:
-        sections.append("## Recent tools\n\n" + tools_summary)
+    # Skip tools/events for dialogue tasks — they're not actionable and waste tokens
+    if not is_dialogue:
+        tools_entries = memory.read_jsonl_tail("tools.jsonl", 200)
+        if task_id:
+            tools_entries = [e for e in tools_entries if e.get("task_id") == task_id]
+        tools_summary = memory.summarize_tools(tools_entries)
+        if tools_summary:
+            sections.append("## Recent tools\n\n" + tools_summary)
 
-    events_entries = memory.read_jsonl_tail("events.jsonl", 200)
-    if task_id:
-        events_entries = [e for e in events_entries if e.get("task_id") == task_id]
-    events_summary = memory.summarize_events(events_entries)
-    if events_summary:
-        sections.append("## Recent events\n\n" + events_summary)
+        events_entries = memory.read_jsonl_tail("events.jsonl", 200)
+        if task_id:
+            events_entries = [e for e in events_entries if e.get("task_id") == task_id]
+        events_summary = memory.summarize_events(events_entries)
+        if events_summary:
+            sections.append("## Recent events\n\n" + events_summary)
 
     supervisor_summary = memory.summarize_supervisor(
         memory.read_jsonl_tail("supervisor.jsonl", 200))
@@ -307,7 +312,6 @@ def build_llm_messages(
     )
     bible_md = _safe_read(env.repo_path("BIBLE.md"))
     readme_md = _safe_read(env.repo_path("README.md"))
-    state_json = _safe_read(env.drive_path("state/state.json"), fallback="{}")
 
     # --- Load memory ---
     memory.ensure_files()
@@ -342,7 +346,6 @@ def build_llm_messages(
 
     # Dynamic content: changes every round
     dynamic_parts = [
-        "## Drive state\n\n" + clip_text(state_json, 90000),
         _build_runtime_section(env, task),
     ]
 
@@ -351,7 +354,7 @@ def build_llm_messages(
     if health_section:
         dynamic_parts.append(health_section)
 
-    dynamic_parts.extend(_build_recent_sections(memory, env, task_id=task.get("id", "")))
+    dynamic_parts.extend(_build_recent_sections(memory, env, task_id=task.get("id", ""), task_type=task_type))
 
     if str(task.get("type") or "") == "review" and review_context_builder is not None:
         try:
