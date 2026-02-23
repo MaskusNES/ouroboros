@@ -31,7 +31,7 @@ from ouroboros.tools import ToolRegistry
 from ouroboros.tools.registry import ToolContext
 from ouroboros.memory import Memory
 from ouroboros.context import build_llm_messages
-from ouroboros.loop import run_llm_loop
+from ouroboros.loop import run_llm_loop, LoopConfig
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +412,7 @@ class OuroborosAgent:
                 initial_effort = "medium"
 
             try:
-                text, usage, llm_trace = run_llm_loop(
+                _cfg = LoopConfig(
                     messages=messages,
                     tools=self.tools,
                     llm=self.llm,
@@ -426,6 +426,7 @@ class OuroborosAgent:
                     initial_effort=initial_effort,
                     drive_root=self.env.drive_root,
                 )
+                text, usage, llm_trace = run_llm_loop(_cfg)
             except Exception as e:
                 tb = traceback.format_exc()
                 append_jsonl(drive_logs / "events.jsonl", {

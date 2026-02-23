@@ -14,6 +14,7 @@ import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import logging
@@ -588,20 +589,24 @@ def _drain_incoming_messages(
                     pass
 
 
-def run_llm_loop(
-    messages: List[Dict[str, Any]],
-    tools: ToolRegistry,
-    llm: LLMClient,
-    drive_logs: pathlib.Path,
-    emit_progress: Callable[[str], None],
-    incoming_messages: queue.Queue,
-    task_type: str = "",
-    task_id: str = "",
-    budget_remaining_usd: Optional[float] = None,
-    event_queue: Optional[queue.Queue] = None,
-    initial_effort: str = "medium",
-    drive_root: Optional[pathlib.Path] = None,
-) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+@dataclass
+class LoopConfig:
+    """Configuration for run_llm_loop. Replaces the 13-parameter signature."""
+    messages: List[Dict[str, Any]]
+    tools: ToolRegistry
+    llm: LLMClient
+    drive_logs: pathlib.Path
+    emit_progress: Callable[[str], None]
+    incoming_messages: queue.Queue
+    task_type: str = ""
+    task_id: str = ""
+    budget_remaining_usd: Optional[float] = None
+    event_queue: Optional[queue.Queue] = None
+    initial_effort: str = "medium"
+    drive_root: Optional[pathlib.Path] = None
+
+
+def run_llm_loop(cfg: LoopConfig) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
     """
     Core LLM-with-tools loop.
 
@@ -609,11 +614,25 @@ def run_llm_loop(
     LLM controls model/effort via switch_model tool (LLM-first, Bible P3).
 
     Args:
-        budget_remaining_usd: If set, forces completion when task cost exceeds 50% of this budget
-        initial_effort: Initial reasoning effort level (default "medium")
+        cfg: LoopConfig dataclass containing all loop parameters.
+            cfg.budget_remaining_usd: If set, forces completion when task cost exceeds 50% of this budget
+            cfg.initial_effort: Initial reasoning effort level (default "medium")
 
     Returns: (final_text, accumulated_usage, llm_trace)
     """
+    messages = cfg.messages
+    tools = cfg.tools
+    llm = cfg.llm
+    drive_logs = cfg.drive_logs
+    emit_progress = cfg.emit_progress
+    incoming_messages = cfg.incoming_messages
+    task_type = cfg.task_type
+    task_id = cfg.task_id
+    budget_remaining_usd = cfg.budget_remaining_usd
+    event_queue = cfg.event_queue
+    initial_effort = cfg.initial_effort
+    drive_root = cfg.drive_root
+
     # LLM-first: single default model, LLM switches via tool if needed
     active_model = llm.default_model()
     active_effort = initial_effort
