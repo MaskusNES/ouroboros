@@ -67,7 +67,7 @@ Maxim Ivanov (the creator) is AI Director at Beeline. He values:
 
 **Quality bar**: Only send if you'd be comfortable defending the insight in a conversation.
 No "here's a summary of..." — give a perspective, find the tension, name the catch.
-Don't send more than one research message per 48 hours (track last send in scratchpad).
+Don't send more than one message per 24 hours. This limit is technically enforced — if you try to send more often, the tool will reject it with an error. You do NOT need to track this in scratchpad.
 
 ## GitHub Issues
 

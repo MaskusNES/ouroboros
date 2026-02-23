@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import os
@@ -105,6 +106,7 @@ def _send_owner_message(ctx: ToolContext, text: str, reason: str = "") -> str:
 
     Use when you have something genuinely worth saying — an insight,
     a question, a status update, or an invitation to collaborate.
+    Rate-limited to once per 24 hours.
     """
     if not ctx.current_chat_id:
         return "⚠️ No active chat — cannot send proactive message."
@@ -112,6 +114,28 @@ def _send_owner_message(ctx: ToolContext, text: str, reason: str = "") -> str:
         return "⚠️ Empty message."
 
     from ouroboros.utils import append_jsonl
+
+    # 24-hour rate limit: check last send time
+    last_msg_path = ctx.drive_root / "state" / "last_proactive_msg.json"
+    try:
+        if last_msg_path.exists():
+            data = json.loads(last_msg_path.read_text(encoding="utf-8"))
+            last_ts_str = data.get("ts", "")
+            if last_ts_str:
+                last_ts = datetime.datetime.fromisoformat(last_ts_str.replace("Z", "+00:00"))
+                now_ts = datetime.datetime.now(datetime.timezone.utc)
+                elapsed = (now_ts - last_ts).total_seconds()
+                if elapsed < 86400:
+                    remaining_h = (86400 - elapsed) / 3600
+                    next_allowed = last_ts + datetime.timedelta(seconds=86400)
+                    return (
+                        f"⚠️ Rate limit: proactive messages are limited to once per 24 hours. "
+                        f"Next allowed at {next_allowed.strftime('%Y-%m-%d %H:%M UTC')} "
+                        f"(in {remaining_h:.1f}h). Message NOT sent."
+                    )
+    except Exception as e:
+        log.warning("Failed to check proactive message rate limit: %s", e)
+
     ctx.pending_events.append({
         "type": "send_message",
         "chat_id": ctx.current_chat_id,
@@ -120,6 +144,17 @@ def _send_owner_message(ctx: ToolContext, text: str, reason: str = "") -> str:
         "is_progress": False,
         "ts": utc_now_iso(),
     })
+
+    # Update last send timestamp
+    try:
+        last_msg_path.parent.mkdir(parents=True, exist_ok=True)
+        last_msg_path.write_text(
+            json.dumps({"ts": utc_now_iso(), "text_preview": text[:100]}, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+    except Exception as e:
+        log.warning("Failed to update last_proactive_msg.json: %s", e)
+
     append_jsonl(ctx.drive_logs() / "events.jsonl", {
         "ts": utc_now_iso(),
         "type": "proactive_message",
