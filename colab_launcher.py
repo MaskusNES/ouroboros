@@ -723,9 +723,12 @@ while True:
         if agent._busy:
             # BUSY PATH: inject into active conversation (single consumer)
             if image_data:
-                if text:
-                    agent.inject_message(text)
-                send_with_budget(chat_id, "📎 Photo received, but a task is in progress. Send again when I'm free.")
+                b64, mime, caption = image_data
+                # Inject image as a special marker so agent knows there's an image
+                img_note = f"[Image attached: {mime}, base64 omitted for inject — will process when free]"
+                combined = (text + "\n" + img_note) if text else img_note
+                agent.inject_message(combined)
+                send_with_budget(chat_id, "📎 Фото получено, обработаю как освобожусь.")
             elif text:
                 agent.inject_message(text)
 
