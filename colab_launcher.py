@@ -572,7 +572,8 @@ while True:
 
     for upd in updates:
         offset = int(upd["update_id"]) + 1
-        msg = upd.get("message") or upd.get("edited_message") or {}
+        msg = upd.get("message") or {}
+        # edited_message should not trigger new responses
         if not msg:
             continue
 
@@ -752,7 +753,9 @@ while True:
                     break
                 for _upd in _extra_updates:
                     offset = max(offset, int(_upd.get("update_id", offset - 1)) + 1)
-                    _msg2 = _upd.get("message") or _upd.get("edited_message") or {}
+                    _msg2 = _upd.get("message") or {}
+                    if not _msg2:
+                        continue
                     _uid2 = (_msg2.get("from") or {}).get("id")
                     _cid2 = (_msg2.get("chat") or {}).get("id")
                     _txt2 = _msg2.get("text") or _msg2.get("caption") or ""
