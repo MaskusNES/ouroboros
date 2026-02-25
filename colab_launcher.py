@@ -196,6 +196,33 @@ from supervisor.state import (
     update_budget_from_usage, status_text, rotate_chat_log_if_needed,
     init_state,
 )
+
+
+def reload_budget() -> float:
+    """Re-read TOTAL_BUDGET from env/secrets and update all supervisor modules in-place.
+
+    Returns the new limit value.
+    """
+    global TOTAL_BUDGET_LIMIT
+    import re as _re
+    raw = get_secret("TOTAL_BUDGET", default="") or ""
+    clean = _re.sub(r'[^0-9.\-]', '', str(raw))
+    try:
+        new_limit = float(clean) if clean else 0.0
+    except Exception:
+        new_limit = 0.0
+    TOTAL_BUDGET_LIMIT = new_limit
+    # Update all modules that hold their own copy of the limit
+    from supervisor.state import set_budget_limit as _state_set
+    _state_set(new_limit)
+    from supervisor import telegram as _tg_mod
+    _tg_mod.TOTAL_BUDGET_LIMIT = new_limit
+    from supervisor import workers as _w_mod
+    _w_mod.TOTAL_BUDGET_LIMIT = new_limit
+    log.info(f"reload_budget: new limit = ${new_limit:.2f}")
+    return new_limit
+
+
 state_init(DRIVE_ROOT, TOTAL_BUDGET_LIMIT)
 init_state()
 
@@ -456,6 +483,22 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
             send_with_budget(chat_id, f"🧠 Background consciousness: {bg_status}")
         return f"[Supervisor handled /bg {action}]\n"
 
+    # Budget reload: /reload_budget or natural language variants
+    if (lowered in ("/reload_budget", "/reload budget", "/обнови бюджет", "/обнови_бюджет")
+            or any(phrase in lowered for phrase in (
+                "обнови бюджет", "обнови лимит", "перечитай лимит",
+                "reload budget", "reload_budget", "update budget",
+            ))):
+        new_limit = reload_budget()
+        st2 = load_state()
+        spent = float(st2.get("spent_usd") or 0.0)
+        remaining = max(0.0, new_limit - spent)
+        send_with_budget(chat_id, (
+            f"✅ Бюджет обновлён: лимит ${new_limit:.0f}, "
+            f"потрачено ${spent:.2f}, остаток ${remaining:.2f}."
+        ))
+        return True
+
     return ""
 
 
@@ -699,7 +742,14 @@ while True:
         save_state(st)
 
         # --- Supervisor commands ---
-        if text.strip().lower().startswith("/"):
+        _lowered_text = text.strip().lower()
+        _is_supervisor_cmd = _lowered_text.startswith("/") or any(
+            phrase in _lowered_text for phrase in (
+                "обнови бюджет", "обнови лимит", "перечитай лимит",
+                "reload budget", "reload_budget", "update budget",
+            )
+        )
+        if _is_supervisor_cmd:
             try:
                 result = _handle_supervisor_command(text, chat_id, tg_offset=offset)
                 if result is True:
