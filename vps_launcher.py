@@ -23,6 +23,50 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 log = logging.getLogger(__name__)
 
+
+def reload_budget_from_env_file() -> float:
+    """Re-read TOTAL_BUDGET directly from .env file and update all modules.
+    Works without process restart. Returns new limit."""
+    global TOTAL_BUDGET_LIMIT
+    import re as _re
+    new_raw = None
+    if _env_path.exists():
+        with open(_env_path) as _ef:
+            for _line in _ef:
+                _line = _line.strip()
+                if _line and not _line.startswith('#') and '=' in _line:
+                    _k, _, _v = _line.partition('=')
+                    if _k.strip() == "TOTAL_BUDGET":
+                        new_raw = _v.strip()
+                        break
+    if new_raw is None:
+        new_raw = os.environ.get("TOTAL_BUDGET", "")
+    clean = _re.sub(r'[^0-9.\-]', '', str(new_raw))
+    try:
+        new_limit = float(clean) if clean else 0.0
+    except Exception:
+        new_limit = 0.0
+    TOTAL_BUDGET_LIMIT = new_limit
+    # Patch all modules that hold a copy of the limit
+    try:
+        from supervisor.state import set_budget_limit as _state_set
+        _state_set(new_limit)
+    except Exception:
+        pass
+    try:
+        from supervisor import telegram as _tg_mod
+        _tg_mod.TOTAL_BUDGET_LIMIT = new_limit
+    except Exception:
+        pass
+    try:
+        from supervisor import workers as _w_mod
+        _w_mod.TOTAL_BUDGET_LIMIT = new_limit
+    except Exception:
+        pass
+    log.info(f"reload_budget_from_env_file: new limit = ${new_limit:.2f}")
+    return new_limit
+
+
 # ----------------------------
 # 0) Install launcher deps
 # ----------------------------
@@ -396,6 +440,40 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         st2["tg_offset"] = tg_offset
         save_state(st2)
         raise SystemExit("PANIC")
+
+    if lowered.startswith("/fullrestart"):
+        send_with_budget(chat_id, "🔄 Full restart: reloading env and restarting service...")
+        st2 = load_state()
+        st2["tg_offset"] = tg_offset
+        save_state(st2)
+        try:
+            subprocess.Popen(
+                ["systemctl", "restart", "ouroboros"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+        except Exception as e:
+            send_with_budget(chat_id, f"⚠️ systemctl failed: {e}. Falling back to exec restart.")
+            os.execv(sys.executable, [sys.executable, __file__])
+        return True
+
+    _RELOAD_BUDGET_PHRASES = (
+        "обнови бюджет", "обнови лимит", "reload budget", "reload_budget",
+        "/reload_budget", "update budget", "update limit",
+    )
+    if any(lowered.startswith(p) for p in _RELOAD_BUDGET_PHRASES):
+        new_limit = reload_budget_from_env_file()
+        from supervisor.state import load_state as _ls
+        st3 = _ls()
+        spent = st3.get("total_spent_usd", 0.0)
+        remaining = max(0.0, new_limit - spent)
+        send_with_budget(
+            chat_id,
+            f"✅ Бюджет обновлён из .env\n"
+            f"Новый лимит: **${new_limit:.2f}**\n"
+            f"Потрачено: ${spent:.2f}\n"
+            f"Остаток: **${remaining:.2f}**",
+        )
+        return True
 
     if lowered.startswith("/restart"):
         st2 = load_state()
