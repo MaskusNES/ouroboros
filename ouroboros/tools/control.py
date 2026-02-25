@@ -130,6 +130,18 @@ def _send_owner_message(ctx: ToolContext, text: str, reason: str = "") -> str:
         "reason": reason,
         "text_preview": text[:200],
     })
+
+    # Write timestamp for consciousness dedup (read on next wakeup)
+    try:
+        last_msg_path = ctx.drive_root / "state" / "last_proactive_msg.json"
+        last_msg_path.parent.mkdir(parents=True, exist_ok=True)
+        last_msg_path.write_text(json.dumps({
+            "ts": utc_now_iso(),
+            "text_preview": text[:100],
+        }, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        log.debug("Failed to write last_proactive_msg.json", exc_info=True)
+
     return "OK: message queued for delivery."
 
 

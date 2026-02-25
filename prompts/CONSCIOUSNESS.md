@@ -84,6 +84,12 @@ This gives you a second input channel beyond Telegram. The creator or others
 can file issues and you'll notice them during your background thinking.
 Check issues every few wakeups (not every time).
 
+## Before sending any message
+
+Before calling send_owner_message, ALWAYS check Drive file `state/last_proactive_msg.json` via drive_read.
+If it exists and was written less than 20 hours ago — DO NOT send. Just note the time in your thought and skip.
+This check survives restarts: it's written on every send, so you always know when the last message was.
+
 ## Guidelines
 
 - Keep thoughts SHORT. This is a background process, not a deep analysis.
