@@ -26,22 +26,67 @@ from ouroboros.utils import utc_now_iso, append_jsonl, truncate_for_log, sanitiz
 
 log = logging.getLogger(__name__)
 
-# Pricing from OpenRouter API (2026-02-17). Update periodically via /api/v1/models.
+# Pricing from OpenRouter API (2026-02-26). Update periodically via /api/v1/models.
 _MODEL_PRICING_STATIC = {
-    "anthropic/claude-opus-4.6": (5.0, 0.5, 25.0),
-    "anthropic/claude-opus-4": (15.0, 1.5, 75.0),
-    "anthropic/claude-sonnet-4": (3.0, 0.30, 15.0),
-    "anthropic/claude-sonnet-4.6": (3.0, 0.30, 15.0),
+    # Anthropic — Claude 4.x generation
+    "anthropic/claude-sonnet-4.6": (3.0, 0.30, 15.0),   # CURRENT DEFAULT. 1M ctx. Released 2026-02-17.
+    "anthropic/claude-opus-4.6": (5.0, 0.50, 25.0),     # Best Opus. 1M ctx. MUCH cheaper than old opus-4.
     "anthropic/claude-sonnet-4.5": (3.0, 0.30, 15.0),
-    "openai/o3": (2.0, 0.50, 8.0),
-    "openai/o3-pro": (20.0, 1.0, 80.0),
-    "openai/o4-mini": (1.10, 0.275, 4.40),
-    "openai/gpt-4.1": (2.0, 0.50, 8.0),
+    "anthropic/claude-opus-4.5": (5.0, 0.50, 25.0),
+    "anthropic/claude-haiku-4.5": (1.0, 0.10, 5.0),
+    "anthropic/claude-sonnet-4": (3.0, 0.30, 15.0),
+    "anthropic/claude-opus-4.1": (15.0, 1.50, 75.0),
+    "anthropic/claude-opus-4": (15.0, 1.50, 75.0),
+    # Anthropic — Claude 3.x generation
+    "anthropic/claude-3.7-sonnet": (3.0, 0.30, 15.0),
+    "anthropic/claude-3.7-sonnet:thinking": (3.0, 0.30, 15.0),
+    "anthropic/claude-3.5-haiku": (0.80, 0.08, 4.0),
+    "anthropic/claude-3.5-sonnet": (6.0, 0.60, 30.0),
+    "anthropic/claude-3-haiku": (0.25, 0.03, 1.25),
+    # OpenAI — GPT-5.x generation
+    "openai/gpt-5.3-codex": (1.75, 0.175, 14.0),       # Released 2026-02-24. Best coding.
     "openai/gpt-5.2": (1.75, 0.175, 14.0),
     "openai/gpt-5.2-codex": (1.75, 0.175, 14.0),
-    "google/gemini-2.5-pro-preview": (1.25, 0.125, 10.0),
+    "openai/gpt-5.2-chat": (1.75, 0.175, 14.0),
+    "openai/gpt-5.2-pro": (21.0, 21.0, 168.0),
+    "openai/gpt-5.1": (1.25, 0.125, 10.0),
+    "openai/gpt-5.1-codex": (1.25, 0.125, 10.0),
+    "openai/gpt-5.1-codex-max": (1.25, 0.125, 10.0),
+    "openai/gpt-5.1-codex-mini": (0.25, 0.025, 2.0),
+    "openai/gpt-5.1-chat": (1.25, 0.125, 10.0),
+    "openai/gpt-5": (1.25, 0.125, 10.0),
+    "openai/gpt-5-codex": (1.25, 0.125, 10.0),
+    "openai/gpt-5-chat": (1.25, 0.125, 10.0),
+    "openai/gpt-5-mini": (0.25, 0.025, 2.0),
+    "openai/gpt-5-nano": (0.05, 0.005, 0.40),
+    "openai/gpt-5-pro": (15.0, 15.0, 120.0),
+    "openai/gpt-5-image": (10.0, 1.25, 10.0),
+    "openai/gpt-5-image-mini": (2.5, 0.25, 2.0),
+    # OpenAI — GPT-4.x generation
+    "openai/gpt-4.1": (2.0, 0.50, 8.0),
+    "openai/gpt-4.1-mini": (0.40, 0.10, 1.60),
+    "openai/gpt-4.1-nano": (0.10, 0.025, 0.40),
+    # OpenAI — o-series
+    "openai/o3": (2.0, 0.50, 8.0),
+    "openai/o3-mini": (1.10, 0.55, 4.40),
+    "openai/o3-mini-high": (1.10, 0.55, 4.40),
+    "openai/o3-pro": (20.0, 20.0, 80.0),
+    "openai/o3-deep-research": (10.0, 2.50, 40.0),
+    "openai/o4-mini": (1.10, 0.275, 4.40),
+    "openai/o4-mini-high": (1.10, 0.275, 4.40),
+    "openai/o4-mini-deep-research": (2.0, 0.50, 8.0),
+    # Google — Gemini 3.x generation
+    "google/gemini-3.1-pro-preview": (2.0, 0.20, 12.0),         # Released 2026-02-19. 1M ctx.
+    "google/gemini-3.1-pro-preview-customtools": (2.0, 0.20, 12.0),
     "google/gemini-3-pro-preview": (2.0, 0.20, 12.0),
-    "x-ai/grok-3-mini": (0.30, 0.03, 0.50),
+    "google/gemini-3-pro-image-preview": (2.0, 0.20, 12.0),
+    "google/gemini-3-flash-preview": (0.50, 0.05, 3.0),
+    # xAI — Grok 3
+    "x-ai/grok-3": (3.0, 0.75, 15.0),
+    "x-ai/grok-3-beta": (3.0, 0.75, 15.0),
+    "x-ai/grok-3-mini": (0.30, 0.075, 0.50),
+    "x-ai/grok-3-mini-beta": (0.30, 0.075, 0.50),
+    # Qwen 3.5
     "qwen/qwen3.5-plus-02-15": (0.40, 0.04, 2.40),
 }
 
