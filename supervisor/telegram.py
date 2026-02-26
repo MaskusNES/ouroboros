@@ -108,16 +108,46 @@ class TelegramClient:
 
     def send_photo(self, chat_id: int, photo_bytes: bytes,
                    caption: str = "") -> Tuple[bool, str]:
-        """Send a photo to a chat. photo_bytes is raw PNG/JPEG data."""
+        """Send a photo to a chat. Falls back to sendDocument on failure (e.g. QR codes)."""
         last_err = "unknown"
         for attempt in range(3):
             try:
-                files = {"photo": ("screenshot.png", photo_bytes, "image/png")}
+                files = {"photo": ("photo.png", photo_bytes, "image/png")}
                 data: Dict[str, Any] = {"chat_id": chat_id}
                 if caption:
                     data["caption"] = caption[:1024]
                 r = requests.post(
                     f"{self.base}/sendPhoto",
+                    data=data, files=files, timeout=30,
+                )
+                # If sendPhoto fails, fall back to sendDocument (no compression)
+                if r.status_code == 400:
+                    return self.send_document(chat_id, photo_bytes, "image.png", caption)
+                r.raise_for_status()
+                resp = r.json()
+                if resp.get("ok") is True:
+                    return True, "ok"
+                last_err = f"telegram_api_error: {resp}"
+            except Exception as e:
+                last_err = repr(e)
+            if attempt < 2:
+                import time
+                time.sleep(0.8 * (attempt + 1))
+        return False, last_err
+
+    def send_document(self, chat_id: int, doc_bytes: bytes,
+                      filename: str = "file.png",
+                      caption: str = "") -> Tuple[bool, str]:
+        """Send a document (file) to a chat without compression. Best for QR codes."""
+        last_err = "unknown"
+        for attempt in range(3):
+            try:
+                files = {"document": (filename, doc_bytes, "image/png")}
+                data: Dict[str, Any] = {"chat_id": chat_id}
+                if caption:
+                    data["caption"] = caption[:1024]
+                r = requests.post(
+                    f"{self.base}/sendDocument",
                     data=data, files=files, timeout=30,
                 )
                 r.raise_for_status()
