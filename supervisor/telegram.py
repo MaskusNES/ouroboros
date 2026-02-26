@@ -109,6 +109,7 @@ class TelegramClient:
     def send_photo(self, chat_id: int, photo_bytes: bytes,
                    caption: str = "") -> Tuple[bool, str]:
         """Send a photo to a chat. Falls back to sendDocument on failure (e.g. QR codes)."""
+        import time
         last_err = "unknown"
         for attempt in range(3):
             try:
@@ -120,20 +121,20 @@ class TelegramClient:
                     f"{self.base}/sendPhoto",
                     data=data, files=files, timeout=30,
                 )
-                # If sendPhoto fails, fall back to sendDocument (no compression)
-                if r.status_code == 400:
+                # Any non-200 or api-level failure → fall back to sendDocument immediately
+                if r.status_code != 200:
                     return self.send_document(chat_id, photo_bytes, "image.png", caption)
-                r.raise_for_status()
                 resp = r.json()
                 if resp.get("ok") is True:
                     return True, "ok"
-                last_err = f"telegram_api_error: {resp}"
+                # ok=False in the JSON body → also fall back immediately
+                return self.send_document(chat_id, photo_bytes, "image.png", caption)
             except Exception as e:
                 last_err = repr(e)
             if attempt < 2:
-                import time
                 time.sleep(0.8 * (attempt + 1))
-        return False, last_err
+        # All network attempts exhausted → last-chance sendDocument
+        return self.send_document(chat_id, photo_bytes, "image.png", caption)
 
     def send_document(self, chat_id: int, doc_bytes: bytes,
                       filename: str = "file.png",
