@@ -378,6 +378,8 @@ class BackgroundConsciousness:
         "browse_page", "browser_action",
         # GitHub Issues
         "list_github_issues", "get_github_issue",
+        # Persistent reminders
+        "reminder_set", "reminder_list", "reminder_delete", "reminder_check",
     })
 
     def _build_registry(self) -> "ToolRegistry":
