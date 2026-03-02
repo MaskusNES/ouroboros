@@ -67,14 +67,17 @@ def _reminder_set(
     fire_at_utc: str,
     text: str,
     id: str = "",
+    repeat_daily: bool = False,
 ) -> str:
     """Schedule a reminder that fires at a specific UTC time.
 
     Args:
-        fire_at_utc: ISO 8601 UTC datetime, e.g. "2026-02-28T19:00:00Z"
-        text:        Message to send to the owner when the reminder fires.
-        id:          Optional stable ID (useful for overwriting existing reminders).
-                     If omitted, a random ID is generated.
+        fire_at_utc:   ISO 8601 UTC datetime, e.g. "2026-02-28T19:00:00Z"
+        text:          Message to send to the owner when the reminder fires.
+        id:            Optional stable ID (useful for overwriting existing reminders).
+                       If omitted, a random ID is generated.
+        repeat_daily:  If True, the reminder is automatically rescheduled every
+                       24 hours after it fires.
     """
     dt = _parse_iso(fire_at_utc)
     if dt is None:
@@ -93,6 +96,7 @@ def _reminder_set(
         "id": rid,
         "fire_at_utc": dt.isoformat(),
         "text": text,
+        "repeat_daily": repeat_daily,
         "created_at": utc_now_iso(),
     })
     _save(ctx, reminders)
@@ -170,6 +174,21 @@ def _reminder_check(ctx: ToolContext) -> str:
             })
         fired.append(f"[{r['id']}] {text[:80]}")
 
+    # After firing, reschedule daily reminders
+    for r in due:
+        if r.get("repeat_daily"):
+            orig_dt = _parse_iso(r.get("fire_at_utc", ""))
+            if orig_dt:
+                from datetime import timedelta
+                next_dt = orig_dt + timedelta(days=1)
+                remaining.append({
+                    "id": r["id"],
+                    "fire_at_utc": next_dt.isoformat(),
+                    "text": r.get("text", ""),
+                    "repeat_daily": True,
+                    "created_at": utc_now_iso(),
+                })
+
     _save(ctx, remaining)
     fired_str = "\n".join(fired)
     return f"Fired {len(due)} reminder(s):\n{fired_str}"
@@ -211,7 +230,8 @@ def get_tools() -> List[ToolEntry]:
                 "description": (
                     "Schedule a persistent reminder that survives restarts. "
                     "Fires at a specific UTC time and sends a message to the owner. "
-                    "Stored in Drive — not in memory."
+                    "Stored in Drive — not in memory. "
+                    "Supports repeat_daily to automatically reschedule every 24 hours."
                 ),
                 "parameters": {
                     "type": "object",
@@ -227,6 +247,10 @@ def get_tools() -> List[ToolEntry]:
                         "id": {
                             "type": "string",
                             "description": "Optional stable ID (to overwrite an existing reminder). Omit for random.",
+                        },
+                        "repeat_daily": {
+                            "type": "boolean",
+                            "description": "If true, automatically reschedule this reminder every 24 hours after it fires.",
                         },
                     },
                     "required": ["fire_at_utc", "text"],
