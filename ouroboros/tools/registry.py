@@ -74,6 +74,7 @@ class ToolEntry:
     handler: Callable  # fn(ctx: ToolContext, **args) -> str
     is_code_tool: bool = False
     timeout_sec: int = 120
+    consciousness_only: bool = False  # If True, excluded from regular worker tool lists
 
 
 CORE_TOOL_NAMES = {
@@ -133,21 +134,23 @@ class ToolRegistry:
     def available_tools(self) -> List[str]:
         return [e.name for e in self._entries.values()]
 
-    def schemas(self, core_only: bool = False) -> List[Dict[str, Any]]:
-        if not core_only:
-            return [{"type": "function", "function": e.schema} for e in self._entries.values()]
-        # Core tools + meta-tools for discovering/enabling extended tools
+    def schemas(self, core_only: bool = False, include_consciousness_only: bool = False) -> List[Dict[str, Any]]:
         result = []
         for e in self._entries.values():
-            if e.name in CORE_TOOL_NAMES or e.name in ("list_available_tools", "enable_tools"):
+            if e.consciousness_only and not include_consciousness_only:
+                continue  # Skip consciousness-only tools for regular tasks
+            if core_only:
+                if e.name in CORE_TOOL_NAMES or e.name in ("list_available_tools", "enable_tools"):
+                    result.append({"type": "function", "function": e.schema})
+            else:
                 result.append({"type": "function", "function": e.schema})
         return result
 
     def list_non_core_tools(self) -> List[Dict[str, str]]:
-        """Return name+description of all non-core tools."""
+        """Return name+description of all non-core tools (excludes consciousness-only tools)."""
         result = []
         for e in self._entries.values():
-            if e.name not in CORE_TOOL_NAMES:
+            if e.name not in CORE_TOOL_NAMES and not e.consciousness_only:
                 desc = e.schema.get("description", "No description")
                 result.append({"name": e.name, "description": desc})
         return result
@@ -184,6 +187,7 @@ class ToolRegistry:
                 schema=entry.schema,
                 handler=handler,
                 timeout_sec=entry.timeout_sec,
+                consciousness_only=entry.consciousness_only,
             )
 
     @property

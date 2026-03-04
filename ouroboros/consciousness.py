@@ -408,7 +408,7 @@ class BackgroundConsciousness:
     def _tool_schemas(self) -> List[Dict[str, Any]]:
         """Return tool schemas filtered to the consciousness whitelist."""
         return [
-            s for s in self._registry.schemas()
+            s for s in self._registry.schemas(include_consciousness_only=True)
             if s.get("function", {}).get("name") in self._BG_TOOL_WHITELIST
         ]
 

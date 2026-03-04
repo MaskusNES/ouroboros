@@ -341,5 +341,6 @@ def get_tools() -> List[ToolEntry]:
                 "parameters": {"type": "object", "properties": {}, "required": []},
             },
             _reminder_check,
+            consciousness_only=True,
         ),
     ]
