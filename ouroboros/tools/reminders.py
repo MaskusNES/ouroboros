@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -21,6 +23,7 @@ from ouroboros.utils import utc_now_iso
 log = logging.getLogger(__name__)
 
 _REMINDERS_FILE = "state/reminders.json"
+_LOCK_FILE = "state/reminders.lock"
 
 
 # ---------------------------------------------------------------------------
@@ -143,55 +146,99 @@ def _reminder_check(ctx: ToolContext) -> str:
     Returns a summary of what fired (or 'nothing due' if none).
     Fired reminders are removed from storage.
     """
-    reminders = _load(ctx)
-    if not reminders:
-        return "No pending reminders."
+    lock_path = ctx.drive_root / _LOCK_FILE
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
 
-    now = datetime.now(tz=timezone.utc)
-    due = [r for r in reminders if _is_due(r, now)]
-    remaining = [r for r in reminders if not _is_due(r, now)]
+    lock_timeout_sec = 3.0
+    lock_stale_sec = 15.0
+    lock_sleep_sec = 0.05
 
-    if not due:
-        # Report next upcoming reminder for context
-        upcoming = sorted(reminders, key=lambda x: x.get("fire_at_utc", ""))
-        next_r = upcoming[0]
-        dt = _parse_iso(next_r.get("fire_at_utc", ""))
-        delta = int((dt - now).total_seconds()) if dt else -1
-        return f"Nothing due. Next: [{next_r['id']}] in {_fmt_delta(delta)}: {next_r.get('text','')[:60]}"
+    lock_fd = None
+    lock_acquired = False
+    try:
+        start = time.time()
+        while time.time() - start < lock_timeout_sec:
+            try:
+                lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+                lock_acquired = True
+                break
+            except FileExistsError:
+                try:
+                    stat = lock_path.stat()
+                    if time.time() - stat.st_mtime > lock_stale_sec:
+                        lock_path.unlink()
+                        continue
+                except Exception:
+                    pass
+                time.sleep(lock_sleep_sec)
+            except Exception:
+                log.debug("Failed to acquire reminders lock", exc_info=True)
+                break
 
-    # Fire each due reminder
-    fired = []
-    for r in due:
-        text = r.get("text", "(no text)")
-        if ctx.current_chat_id:
-            ctx.pending_events.append({
-                "type": "send_message",
-                "chat_id": ctx.current_chat_id,
-                "text": f"⏰ Напоминание: {text}",
-                "format": "markdown",
-                "is_progress": False,
-                "ts": utc_now_iso(),
-            })
-        fired.append(f"[{r['id']}] {text[:80]}")
+        if not lock_acquired:
+            return "Skipped: another worker is checking reminders."
 
-    # After firing, reschedule daily reminders
-    for r in due:
-        if r.get("repeat_daily"):
-            orig_dt = _parse_iso(r.get("fire_at_utc", ""))
-            if orig_dt:
-                from datetime import timedelta
-                next_dt = orig_dt + timedelta(days=1)
-                remaining.append({
-                    "id": r["id"],
-                    "fire_at_utc": next_dt.isoformat(),
-                    "text": r.get("text", ""),
-                    "repeat_daily": True,
-                    "created_at": utc_now_iso(),
+        reminders = _load(ctx)
+        if not reminders:
+            return "No pending reminders."
+
+        now = datetime.now(tz=timezone.utc)
+        due = [r for r in reminders if _is_due(r, now)]
+        remaining = [r for r in reminders if not _is_due(r, now)]
+
+        if not due:
+            # Report next upcoming reminder for context
+            upcoming = sorted(reminders, key=lambda x: x.get("fire_at_utc", ""))
+            next_r = upcoming[0]
+            dt = _parse_iso(next_r.get("fire_at_utc", ""))
+            delta = int((dt - now).total_seconds()) if dt else -1
+            return f"Nothing due. Next: [{next_r['id']}] in {_fmt_delta(delta)}: {next_r.get('text','')[:60]}"
+
+        # Fire each due reminder
+        fired = []
+        for r in due:
+            text = r.get("text", "(no text)")
+            if ctx.current_chat_id:
+                ctx.pending_events.append({
+                    "type": "send_message",
+                    "chat_id": ctx.current_chat_id,
+                    "text": f"⏰ Напоминание: {text}",
+                    "format": "markdown",
+                    "is_progress": False,
+                    "ts": utc_now_iso(),
                 })
+            fired.append(f"[{r['id']}] {text[:80]}")
 
-    _save(ctx, remaining)
-    fired_str = "\n".join(fired)
-    return f"Fired {len(due)} reminder(s):\n{fired_str}"
+        # After firing, reschedule daily reminders
+        for r in due:
+            if r.get("repeat_daily"):
+                orig_dt = _parse_iso(r.get("fire_at_utc", ""))
+                if orig_dt:
+                    from datetime import timedelta
+                    next_dt = orig_dt + timedelta(days=1)
+                    remaining.append({
+                        "id": r["id"],
+                        "fire_at_utc": next_dt.isoformat(),
+                        "text": r.get("text", ""),
+                        "repeat_daily": True,
+                        "created_at": utc_now_iso(),
+                    })
+
+        _save(ctx, remaining)
+        fired_str = "\n".join(fired)
+        return f"Fired {len(due)} reminder(s):\n{fired_str}"
+
+    finally:
+        if lock_fd is not None:
+            try:
+                os.close(lock_fd)
+            except Exception:
+                pass
+        if lock_acquired:
+            try:
+                lock_path.unlink()
+            except Exception:
+                pass
 
 
 def _is_due(r: Dict, now: datetime) -> bool:
