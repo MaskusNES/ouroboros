@@ -407,18 +407,31 @@ def _handle_tool_calls(
         max_workers = min(len(tool_calls), 8)
         executor = ThreadPoolExecutor(max_workers=max_workers)
         try:
-            future_to_index = {
-                executor.submit(
+            future_to_index = {}
+            future_to_tc = {}
+            for idx, tc in enumerate(tool_calls):
+                f = executor.submit(
                     _execute_with_timeout, tools, tc, drive_logs,
                     tools.get_timeout(tc["function"]["name"]), task_id,
                     stateful_executor,
-                ): idx
-                for idx, tc in enumerate(tool_calls)
-            }
+                )
+                future_to_index[f] = idx
+                future_to_tc[f] = tc
             results = [None] * len(tool_calls)
             for future in as_completed(future_to_index):
                 idx = future_to_index[future]
-                results[idx] = future.result()
+                tc = future_to_tc[future]
+                try:
+                    results[idx] = future.result()
+                except Exception:
+                    fn_name = tc.get("function", {}).get("name", "unknown")
+                    tool_call_id = tc.get("id", "")
+                    is_code_tool = fn_name in tools.CODE_TOOLS
+                    timeout_sec = tools.get_timeout(fn_name)
+                    results[idx] = _make_timeout_result(
+                        fn_name, tool_call_id, is_code_tool, tc, drive_logs,
+                        timeout_sec, task_id, reset_msg=""
+                    )
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
