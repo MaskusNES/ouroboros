@@ -29,9 +29,9 @@ log = logging.getLogger(__name__)
 # Pricing from OpenRouter API (2026-02-26). Update periodically via /api/v1/models.
 _MODEL_PRICING_STATIC = {
     # Anthropic — Claude 4.x generation
-    "anthropic/claude-sonnet-4.6": (3.0, 0.30, 15.0),   # CURRENT DEFAULT. 1M ctx. Released 2026-02-17.
+    "anthropic/claude-sonnet-4.6": (3.0, 0.30, 15.0),   # Exists but unstable (empty responses). Use 4.5 instead.
     "anthropic/claude-opus-4.6": (5.0, 0.50, 25.0),     # Best Opus. 1M ctx. MUCH cheaper than old opus-4.
-    "anthropic/claude-sonnet-4.5": (3.0, 0.30, 15.0),
+    "anthropic/claude-sonnet-4.5": (3.0, 0.30, 15.0),   # CURRENT DEFAULT. Stable. 1M ctx.
     "anthropic/claude-opus-4.5": (5.0, 0.50, 25.0),
     "anthropic/claude-haiku-4.5": (1.0, 0.10, 5.0),
     "anthropic/claude-sonnet-4": (3.0, 0.30, 15.0),
@@ -778,7 +778,7 @@ def run_llm_loop(cfg: LoopConfig) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
                 # Configurable fallback priority list (Bible P3: no hardcoded behavior)
                 fallback_list_raw = os.environ.get(
                     "OUROBOROS_MODEL_FALLBACK_LIST",
-                    "google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6"
+                    "google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.5"
                 )
                 fallback_candidates = [m.strip() for m in fallback_list_raw.split(",") if m.strip()]
                 fallback_model = None
