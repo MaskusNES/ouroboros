@@ -1,5 +1,7 @@
-
 openai>=1.0.0
 requests
 playwright
 playwright-stealth
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+google-api-python-client>=2.0.0
