@@ -4,6 +4,10 @@
 *.key
 *.pem
 
+# Gmail OAuth credentials and tokens — never commit these
+gmail_credentials.json
+gmail_token.json
+
 # IDE
 .cursor/
 .vscode/
