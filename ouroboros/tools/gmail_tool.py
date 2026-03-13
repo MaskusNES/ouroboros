@@ -4,11 +4,9 @@ Reads ONLY From, Subject, Date headers — no body, no attachments.
 Uses gmail.metadata scope which physically cannot access message content.
 """
 
-import json
 import os
 from typing import Any
 
-CREDENTIALS_PATH = "/opt/ouroboros_data/gmail_credentials.json"
 TOKEN_PATH = "/opt/ouroboros_data/gmail_token.json"
 SCOPES = ["https://www.googleapis.com/auth/gmail.metadata"]
 
@@ -31,39 +29,12 @@ def _get_service():
             "Run scripts/gmail_auth.py to authorize."
         )
 
-    if not os.path.exists(CREDENTIALS_PATH):
-        raise RuntimeError(
-            f"Gmail credentials not found at {CREDENTIALS_PATH}."
-        )
+    creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
 
-    with open(TOKEN_PATH) as f:
-        token_data = json.load(f)
-
-    with open(CREDENTIALS_PATH) as f:
-        creds_info = json.load(f)["installed"]
-
-    creds = Credentials(
-        token=token_data.get("access_token"),
-        refresh_token=token_data.get("refresh_token"),
-        token_uri=creds_info["token_uri"],
-        client_id=creds_info["client_id"],
-        client_secret=creds_info["client_secret"],
-        scopes=SCOPES,
-    )
-
-    # Refresh if expired
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        # Save refreshed token
-        updated = {
-            "access_token": creds.token,
-            "refresh_token": creds.refresh_token,
-            "token_uri": creds_info["token_uri"],
-            "client_id": creds_info["client_id"],
-            "client_secret": creds_info["client_secret"],
-        }
         with open(TOKEN_PATH, "w") as f:
-            json.dump(updated, f, indent=2)
+            f.write(creds.to_json())
 
     return build("gmail", "v1", credentials=creds)
 
