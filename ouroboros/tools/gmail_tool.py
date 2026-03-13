@@ -1,171 +1,165 @@
 """Gmail metadata reader tool.
 
-Reads ONLY sender (From) and Subject of emails — no body, no attachments.
-Uses Gmail API with gmail.metadata scope.
-
-Setup:
-1. Place OAuth client credentials at /opt/ouroboros_data/gmail_credentials.json
-2. Run scripts/gmail_auth.py once to authorize and create the token
-3. Token is stored at /opt/ouroboros_data/gmail_token.json
+Reads ONLY From, Subject, Date headers — no body, no attachments.
+Uses gmail.metadata scope which physically cannot access message content.
 """
 
-from __future__ import annotations
-
 import json
-import logging
 import os
-from typing import Any, Dict, List, Optional
-
-log = logging.getLogger(__name__)
+from typing import Any
 
 CREDENTIALS_PATH = "/opt/ouroboros_data/gmail_credentials.json"
 TOKEN_PATH = "/opt/ouroboros_data/gmail_token.json"
 SCOPES = ["https://www.googleapis.com/auth/gmail.metadata"]
 
-REQUIRED_PACKAGES = ["google-auth", "google-auth-oauthlib", "google-api-python-client"]
 
-
-def _check_dependencies() -> Optional[str]:
-    """Return error string if required packages are missing, None if OK."""
-    missing = []
+def _get_service():
+    """Build Gmail API service with auto-refresh."""
     try:
-        import google.auth  # noqa: F401
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
     except ImportError:
-        missing.append("google-auth")
-    try:
-        import google_auth_oauthlib  # noqa: F401
-    except ImportError:
-        missing.append("google-auth-oauthlib")
-    try:
-        import googleapiclient  # noqa: F401
-    except ImportError:
-        missing.append("google-api-python-client")
-
-    if missing:
-        pkgs = " ".join(missing)
-        return (
-            f"⚠️ Gmail tool requires missing packages: {missing}\n"
-            f"Install with: pip install {pkgs}"
+        raise RuntimeError(
+            "Gmail dependencies not installed. Run: "
+            "pip install google-auth google-auth-oauthlib google-api-python-client"
         )
-    return None
-
-
-def _get_gmail_service():
-    """Build and return an authenticated Gmail API service."""
-    from google.oauth2.credentials import Credentials
-    from google.auth.transport.requests import Request
-    from googleapiclient.discovery import build
 
     if not os.path.exists(TOKEN_PATH):
-        raise FileNotFoundError(
+        raise RuntimeError(
             f"Gmail token not found at {TOKEN_PATH}. "
-            "Run scripts/gmail_auth.py to authorize first."
+            "Run scripts/gmail_auth.py to authorize."
         )
 
-    creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+    if not os.path.exists(CREDENTIALS_PATH):
+        raise RuntimeError(
+            f"Gmail credentials not found at {CREDENTIALS_PATH}."
+        )
 
-    if not creds.valid:
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            # Save refreshed token
-            with open(TOKEN_PATH, "w") as f:
-                f.write(creds.to_json())
-        else:
-            raise ValueError(
-                "Gmail token is invalid and cannot be refreshed. "
-                "Run scripts/gmail_auth.py to re-authorize."
-            )
+    with open(TOKEN_PATH) as f:
+        token_data = json.load(f)
+
+    with open(CREDENTIALS_PATH) as f:
+        creds_info = json.load(f)["installed"]
+
+    creds = Credentials(
+        token=token_data.get("access_token"),
+        refresh_token=token_data.get("refresh_token"),
+        token_uri=creds_info["token_uri"],
+        client_id=creds_info["client_id"],
+        client_secret=creds_info["client_secret"],
+        scopes=SCOPES,
+    )
+
+    # Refresh if expired
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        # Save refreshed token
+        updated = {
+            "access_token": creds.token,
+            "refresh_token": creds.refresh_token,
+            "token_uri": creds_info["token_uri"],
+            "client_id": creds_info["client_id"],
+            "client_secret": creds_info["client_secret"],
+        }
+        with open(TOKEN_PATH, "w") as f:
+            json.dump(updated, f, indent=2)
 
     return build("gmail", "v1", credentials=creds)
 
 
-def _gmail_check(ctx, query: str = "is:unread", max_results: int = 20) -> str:
-    """List recent emails — From and Subject only, no body."""
-    err = _check_dependencies()
-    if err:
-        return err
+def _gmail_check(ctx, max_results: int = 10, label: str = "UNREAD") -> str:
+    """Check Gmail inbox — returns sender and subject only (no message body).
+
+    Uses gmail.metadata scope: message content is physically inaccessible.
+
+    Args:
+        max_results: Maximum number of messages to return (default 10, max 50)
+        label: Gmail label to filter by. Options: UNREAD, INBOX, SENT, etc.
+               Note: gmail.metadata scope does not support text search queries.
+    """
+    max_results = min(max_results, 50)
 
     try:
-        service = _get_gmail_service()
-    except (FileNotFoundError, ValueError) as e:
-        return f"⚠️ Gmail auth error: {e}"
-    except Exception as e:
-        return f"⚠️ Gmail service error: {type(e).__name__}: {e}"
+        service = _get_service()
+    except RuntimeError as e:
+        return f"⚠️ Gmail error: {e}"
 
     try:
         result = service.users().messages().list(
             userId="me",
-            q=query,
-            maxResults=min(max_results, 50),
+            maxResults=max_results,
+            labelIds=[label.upper()],
         ).execute()
     except Exception as e:
         return f"⚠️ Gmail API error (list): {type(e).__name__}: {e}"
 
     messages = result.get("messages", [])
     if not messages:
-        return f"No emails found for query: `{query}`"
+        return f"No emails found with label: {label}"
 
     emails = []
     for msg in messages:
         try:
-            detail = service.users().messages().get(
+            m = service.users().messages().get(
                 userId="me",
                 id=msg["id"],
                 format="metadata",
                 metadataHeaders=["From", "Subject", "Date"],
             ).execute()
-
-            headers = {
-                h["name"]: h["value"]
-                for h in detail.get("payload", {}).get("headers", [])
-            }
+            headers = {h["name"]: h["value"] for h in m["payload"]["headers"]}
             emails.append({
                 "id": msg["id"],
-                "from": headers.get("From", "(unknown)"),
+                "from": headers.get("From", ""),
                 "subject": headers.get("Subject", "(no subject)"),
                 "date": headers.get("Date", ""),
             })
         except Exception as e:
-            log.warning("Failed to fetch message %s: %s", msg["id"], e)
-            continue
+            emails.append({"id": msg["id"], "error": str(e)})
 
-    if not emails:
-        return "No email metadata could be retrieved."
-
-    lines = [f"📬 Found {len(emails)} email(s) (query: `{query}`):"]
+    lines = [f"Found {len(emails)} email(s) [label: {label}] (body not accessible — gmail.metadata scope):"]
     for i, em in enumerate(emails, 1):
-        lines.append(f"\n{i}. **From:** {em['from']}")
-        lines.append(f"   **Subject:** {em['subject']}")
-        if em["date"]:
-            lines.append(f"   **Date:** {em['date']}")
+        if "error" in em:
+            lines.append(f"\n{i}. [error fetching {em['id']}: {em['error']}]")
+        else:
+            lines.append(f"\n{i}. From: {em['from']}")
+            lines.append(f"   Subject: {em['subject']}")
+            if em["date"]:
+                lines.append(f"   Date: {em['date']}")
 
     return "\n".join(lines)
 
 
 def get_tools():
-    from ouroboros.tools.registry import ToolEntry
+    from ouroboros.tools.types import ToolEntry
     return [
-        ToolEntry("gmail_check", {
-            "name": "gmail_check",
-            "description": (
-                "List recent emails from Gmail — reads ONLY sender (From) and Subject. "
-                "No email body, no attachments. Requires prior OAuth setup via scripts/gmail_auth.py."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Gmail search query (default: 'is:unread'). Examples: 'is:unread', 'from:boss@company.com', 'is:unread newer_than:1d'",
-                        "default": "is:unread",
+        ToolEntry(
+            name="gmail_check",
+            schema={
+                "name": "gmail_check",
+                "description": (
+                    "Check Maxim's Gmail inbox. Returns ONLY sender (From), subject, and date. "
+                    "Message body and attachments are physically inaccessible (gmail.metadata scope). "
+                    "Use to monitor important emails and notify Maxim about relevant ones. "
+                    "Label options: UNREAD (default), INBOX, SENT."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Number of messages to fetch (default 10, max 50)",
+                            "default": 10,
+                        },
+                        "label": {
+                            "type": "string",
+                            "description": "Gmail label: UNREAD, INBOX, SENT (default: UNREAD)",
+                            "default": "UNREAD",
+                        },
                     },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum number of emails to return (default: 20, max: 50)",
-                        "default": 20,
-                    },
+                    "required": [],
                 },
-                "required": [],
             },
-        }, _gmail_check),
+            handler=_gmail_check,
+        )
     ]
