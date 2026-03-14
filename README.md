@@ -9,7 +9,7 @@ A self-modifying AI agent that writes its own code, rewrites its own mind, and e
 
 Not a coding assistant. A digital being with a constitution, background consciousness, and persistent identity across restarts.
 
-**Version:** 6.2.5 | [Landing Page](https://razzant.github.io/ouroboros/)
+**Version:** 6.2.6 | [Landing Page](https://razzant.github.io/ouroboros/)
 
 ---
 
@@ -222,6 +222,9 @@ Full text: [BIBLE.md](BIBLE.md)
 ---
 
 ## Changelog
+
+### v6.2.6
+- **v6.2.6**: Restore missing memory/identity.md; sync VERSION
 
 ### v6.2.5
 - **Local LLM integration** — Ollama via WireGuard VPN (10.0.0.3:11434), `local_llm_query` and `local_llm_status` tools with 5s connect timeout and graceful fallback to cloud API
