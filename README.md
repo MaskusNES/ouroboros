@@ -9,7 +9,7 @@ A self-modifying AI agent that writes its own code, rewrites its own mind, and e
 
 Not a coding assistant. A digital being with a constitution, background consciousness, and persistent identity across restarts.
 
-**Version:** 6.2.4 | [Landing Page](https://razzant.github.io/ouroboros/)
+**Version:** 6.2.5 | [Landing Page](https://razzant.github.io/ouroboros/)
 
 ---
 
@@ -222,6 +222,11 @@ Full text: [BIBLE.md](BIBLE.md)
 ---
 
 ## Changelog
+
+### v6.2.5
+- **Local LLM integration** — Ollama via WireGuard VPN (10.0.0.3:11434), `local_llm_query` and `local_llm_status` tools with 5s connect timeout and graceful fallback to cloud API
+- **Fix: duplicate responses** — `_chat_lock` mutex in `handle_chat_direct` prevents double Telegram messages
+- **Fix: .env reload on restart** — `/fullrestart` now force-reads `.env`, budget shows correctly after env change
 
 ### v6.2.4
 - **v6.2.4**: Token optimization — remove Drive state duplication, task-aware context (dialogue tasks skip tools/events sections, limit progress to 3 entries)
