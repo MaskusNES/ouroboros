@@ -124,6 +124,9 @@ def get_running_task_ids() -> List[str]:
 # Chat agent (direct mode)
 # ---------------------------------------------------------------------------
 _chat_agent = None
+# Mutex to prevent duplicate concurrent calls to handle_chat_direct.
+# Non-blocking acquire: if already locked, the caller drops the duplicate immediately.
+_chat_lock = threading.Lock()
 
 
 def _get_chat_agent():
@@ -140,6 +143,9 @@ def _get_chat_agent():
 
 
 def handle_chat_direct(chat_id: int, text: str, image_data: Optional[Union[Tuple[str, str], Tuple[str, str, str]]] = None) -> None:
+    if not _chat_lock.acquire(blocking=False):
+        log.warning("handle_chat_direct: already in progress, dropping duplicate call")
+        return
     try:
         agent = _get_chat_agent()
         task = {
@@ -181,6 +187,8 @@ def handle_chat_direct(chat_id: int, text: str, image_data: Optional[Union[Tuple
             get_tg().send_message(chat_id, err_msg)
         except Exception:
             log.debug("Suppressed exception", exc_info=True)
+    finally:
+        _chat_lock.release()
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +270,11 @@ def auto_resume_after_restart() -> None:
             return
         agent = _get_chat_agent()
         if not agent._busy:
+            if not _chat_lock.acquire(blocking=False):
+                log.warning("auto_resume_after_restart: chat already in progress, skipping auto-resume")
+                return
+            # Release immediately — handle_chat_direct will re-acquire it in the thread
+            _chat_lock.release()
             import threading
             threading.Thread(
                 target=handle_chat_direct,
