@@ -293,3 +293,47 @@ class LLMClient:
         if light and light != main and light != code:
             models.append(light)
         return models
+
+
+# ---------------------------------------------------------------------------
+# Ollama / local LLM support
+# ---------------------------------------------------------------------------
+
+_OLLAMA_BASE_URL_DEFAULT = "http://10.0.0.3:11434"
+_OLLAMA_MODEL_DEFAULT = "deepseek-r1:14b"
+
+
+def _ollama_base_url() -> str:
+    return os.environ.get("OLLAMA_BASE_URL", _OLLAMA_BASE_URL_DEFAULT).rstrip("/")
+
+
+def get_local_llm_client() -> LLMClient:
+    """Return an LLMClient pointed at the local Ollama instance (OpenAI-compatible API)."""
+    base_url = _ollama_base_url() + "/v1"
+    return LLMClient(api_key="ollama", base_url=base_url)
+
+
+def local_llm_available() -> bool:
+    """Return True if the local Ollama instance is reachable, False otherwise."""
+    try:
+        import requests
+        url = _ollama_base_url() + "/api/tags"
+        resp = requests.get(url, timeout=2)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def get_local_models() -> List[str]:
+    """Return list of model names available on the local Ollama instance."""
+    try:
+        import requests
+        url = _ollama_base_url() + "/api/tags"
+        resp = requests.get(url, timeout=2)
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        models = data.get("models") or []
+        return [m["name"] for m in models if isinstance(m, dict) and m.get("name")]
+    except Exception:
+        return []
