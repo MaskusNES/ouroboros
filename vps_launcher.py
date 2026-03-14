@@ -7,7 +7,7 @@
 
 import os, pathlib
 
-# Load .env file if present (VPS mode)
+# Load .env file if present (VPS mode) — always overrides so restarts pick up changes
 _env_path = pathlib.Path(__file__).parent / ".env"
 if _env_path.exists():
     with open(_env_path) as _f:
@@ -15,7 +15,7 @@ if _env_path.exists():
             _line = _line.strip()
             if _line and not _line.startswith('#') and '=' in _line:
                 _k, _, _v = _line.partition('=')
-                os.environ.setdefault(_k.strip(), _v.strip())
+                os.environ[_k.strip()] = _v.strip()
 
 import logging
 import sys, json, time, uuid, subprocess, datetime, threading, queue as _queue_mod
@@ -446,14 +446,33 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         st2 = load_state()
         st2["tg_offset"] = tg_offset
         save_state(st2)
-        try:
-            subprocess.Popen(
-                ["systemctl", "restart", "ouroboros"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-        except Exception as e:
-            send_with_budget(chat_id, f"⚠️ systemctl failed: {e}. Falling back to exec restart.")
-            os.execv(sys.executable, [sys.executable, __file__])
+        # Try ouroboros-nondocker first (VPS direct mode), then ouroboros (Docker mode)
+        _restarted = False
+        for _svc in ("ouroboros-nondocker", "ouroboros"):
+            try:
+                result = subprocess.run(
+                    ["systemctl", "is-active", _svc],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0 or result.stdout.strip() in ("active", "activating"):
+                    subprocess.Popen(
+                        ["systemctl", "restart", _svc],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                    _restarted = True
+                    break
+            except Exception:
+                pass
+        if not _restarted:
+            # Fallback: try nondocker anyway
+            try:
+                subprocess.Popen(
+                    ["systemctl", "restart", "ouroboros-nondocker"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+            except Exception as e:
+                send_with_budget(chat_id, f"⚠️ systemctl failed: {e}. Falling back to exec restart.")
+                os.execv(sys.executable, [sys.executable, __file__])
         return True
 
     _RELOAD_BUDGET_PHRASES = (
