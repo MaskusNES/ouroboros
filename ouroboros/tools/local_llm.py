@@ -25,7 +25,7 @@ def _local_llm_query(
         resp = requests.post(
             url,
             json={"model": model, "prompt": prompt, "stream": False},
-            timeout=120,
+            timeout=(5, 90),  # 5s connect, 90s read — fail fast if Ollama is down
         )
         resp.raise_for_status()
         return resp.json().get("response", "")
@@ -49,7 +49,9 @@ def get_tools() -> List[ToolEntry]:
             "description": (
                 "Query the local Ollama LLM (DeepSeek R1:14b on RTX 5070 Ti via VPN). "
                 "Use for summarization, analysis, draft writing — saves paid API budget. "
-                "NOT suitable for tool calls or complex reasoning chains."
+                "NOT suitable for tool calls or complex reasoning chains. "
+                "If Ollama is unavailable, returns an error string — handle gracefully "
+                "and continue with paid API if needed."
             ),
             "parameters": {"type": "object", "properties": {
                 "prompt": {"type": "string", "description": "The prompt/question to send to the local LLM"},
