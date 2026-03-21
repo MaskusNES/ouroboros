@@ -124,6 +124,14 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
                 },
             )
 
+    # Save task data before removing from RUNNING (needed for dedup cleanup)
+    completed_task_text = ""
+    if task_id and task_id in ctx.RUNNING:
+        meta = ctx.RUNNING.get(task_id) or {}
+        completed_task = meta.get("task") if isinstance(meta, dict) else {}
+        if isinstance(completed_task, dict):
+            completed_task_text = str(completed_task.get("text") or "")
+
     if task_id:
         ctx.RUNNING.pop(str(task_id), None)
     if wid in ctx.WORKERS and ctx.WORKERS[wid].busy_task_id == task_id:
@@ -150,6 +158,42 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
             os.rename(tmp_file, result_file)
     except Exception as e:
         log.warning("Failed to store task result in events: %s", e)
+
+    # Auto-cancel duplicate pending tasks (owner request: dedup on task completion)
+    if completed_task_text and task_type == "task":
+        try:
+            from supervisor.queue import PENDING
+            # Find pending tasks that duplicate the just-completed task
+            # We check: for each pending task, is it a semantic duplicate of what we just did?
+            dups_to_cancel = []
+            for pt in list(PENDING):
+                pt_text = str(pt.get("text") or pt.get("description") or "")
+                if not pt_text.strip():
+                    continue
+                # Use _find_duplicate_task: treat completed task as the "existing" task
+                dup_id = _find_duplicate_task(
+                    pt_text,
+                    [{"id": task_id or "done", "text": completed_task_text}],
+                    {},
+                )
+                if dup_id:
+                    dups_to_cancel.append(pt["id"])
+
+            for dup_task_id in dups_to_cancel:
+                cancelled = ctx.cancel_task_by_id(dup_task_id)
+                if cancelled:
+                    ctx.append_jsonl(
+                        ctx.DRIVE_ROOT / "logs" / "supervisor.jsonl",
+                        {
+                            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "type": "auto_cancelled_duplicate_task",
+                            "cancelled_task_id": dup_task_id,
+                            "reason": f"duplicate of just-completed task {task_id}",
+                        },
+                    )
+                    log.info("Auto-cancelled duplicate task %s (duplicate of completed %s)", dup_task_id, task_id)
+        except Exception as e:
+            log.warning("Failed to auto-cancel duplicate tasks after completion: %s", e)
 
 
 def _handle_task_metrics(evt: Dict[str, Any], ctx: Any) -> None:
