@@ -380,6 +380,8 @@ class BackgroundConsciousness:
         "list_github_issues", "get_github_issue",
         # Persistent reminders
         "reminder_set", "reminder_list", "reminder_delete", "reminder_check",
+        # AI digest tools
+        "ai_digest_check", "ai_digest_run",
     })
 
     def _build_registry(self) -> "ToolRegistry":
